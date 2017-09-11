@@ -15,8 +15,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"golang.org/x/text/encoding"
-
 	"github.com/Djoulzy/ImgStock/clog"
 	curl "github.com/andelf/go-curl"
 	"github.com/ryanbradynd05/go-tmdb"
@@ -99,7 +97,7 @@ func (DB *MovieDB) find(movieName string) (string, error) {
 }
 
 func (DB *MovieDB) action(ctx *fasthttp.RequestCtx) {
-	// var buffer *bytes.Buffer
+	var buffer *bytes.Buffer
 
 	clog.Info("MovieDB", "action", "GET %s", ctx.Path())
 	path := ctx.Path()
@@ -112,9 +110,9 @@ func (DB *MovieDB) action(ctx *fasthttp.RequestCtx) {
 		return
 	}
 	clog.Trace("", "", "%s", url)
-	// buffer = new(bytes.Buffer)
-	// DB.fetch(url, buffer)
-	// DB.sendBuffer(ctx, buffer)
+	buffer = new(bytes.Buffer)
+	DB.fetch(url, buffer)
+	DB.sendBuffer(ctx, buffer)
 }
 
 func (DB *MovieDB) Start() {
@@ -126,24 +124,16 @@ func (DB *MovieDB) Start() {
 	DB.baseURL = conf.Images.BaseURL
 	DB.posterSizes = conf.Images.PosterSizes
 
-	err = fasthttp.ListenAndServe("localhost:9999", DB.action)
+	err = fasthttp.ListenAndServe("10.31.100.200:9999", DB.action)
 	if err != nil {
 		clog.Fatal("MovieDB", "Start", err)
 	}
-}
-
-func TEST() {
-	d := encoding.Decoder{}
-	s, _ := d.String("Ã©")
-	clog.Trace("MovieDB", "Start", "%s", s)
 }
 
 func main() {
 	clog.LogLevel = 5
 	clog.StartLogging = true
 
-	TEST()
-	return
 	DB := MovieDB{
 		conn: tmdb.Init("a0a1bc2a8a0f074c47fdae6efdeb5e04"),
 	}
