@@ -177,8 +177,9 @@ func (DB *MovieDB) action(ctx *fasthttp.RequestCtx) {
 		DB.fetch(url, buffer)
 		DB.sendBuffer(ctx, buffer)
 		DB.cacheBuffer(buffer, movieName, size, year)
+	} else {
+		DB.sendBinary(ctx, url)
 	}
-	DB.sendBinary(ctx, url)
 }
 
 func (DB *MovieDB) Start() {
