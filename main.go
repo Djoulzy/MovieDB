@@ -189,7 +189,7 @@ func (DB *MovieDB) Start() {
 	DB.baseURL = conf.Images.BaseURL
 	DB.posterSizes = conf.Images.PosterSizes
 
-	err = fasthttp.ListenAndServe("localhost:9999", DB.action)
+	err = fasthttp.ListenAndServe("10.31.100.200:9999", DB.action)
 	if err != nil {
 		clog.Fatal("MovieDB", "Start", err)
 	}
