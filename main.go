@@ -160,6 +160,7 @@ func (DB *MovieDB) action(ctx *fasthttp.RequestCtx) {
 	query := strings.Split(string(path[1:]), "/")
 	if query[0] == "favicon.ico" {
 		DB.handleError(ctx, "Not found", http.StatusNotFound)
+		return
 	}
 	movieName := query[1] //strings.Join(query, " ")
 	size := query[0]
