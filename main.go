@@ -147,18 +147,18 @@ func (DB *MovieDB) find(movieName string, size string, year string) (string, err
 		return "", err
 	}
 	if len(results.Results) == 0 {
-		clog.Warn("MovieDB", "find", "Searching for '%s', No Data Found", movieName)
+		clog.Warn("MovieDB", "find", "Searching for '%s' year: %s, No Data Found", movieName, options["year"])
 		return "", errors.New("No Data Found")
 	}
 	movieInfo := results.Results[0]
-	clog.Debug("MovieDB", "find", "Searching for '%s', Found: '%v' [TmdbID:%d]", movieName, movieInfo.Title, movieInfo.ID)
+	clog.Debug("MovieDB", "find", "Searching for '%s' year: %s, Found: '%v' [TmdbID:%d]", movieName, options["year"], movieInfo.Title, movieInfo.ID)
 	filePath := fmt.Sprintf("%s%s%s", DB.baseURL, size, movieInfo.PosterPath)
 
 	return filePath, nil
 }
 
 func (DB *MovieDB) makeID(movieName string, year string) string {
-	tmp := sha1.Sum([]byte(fmt.Sprintf("%d|%s", year, movieName)))
+	tmp := sha1.Sum([]byte(fmt.Sprintf("%s|%s", year, movieName)))
 	return fmt.Sprintf("%x", tmp)
 }
 
@@ -224,9 +224,9 @@ func (DB *MovieDB) Start(appConf *AppConfig) {
 func main() {
 	appConfig := &AppConfig{
 		Globals{
-			LogLevel:     1,
-			StartLogging: false,
-			HTTP_addr:    "localhost:90",
+			LogLevel:     5,
+			StartLogging: true,
+			HTTP_addr:    "localhost:9999",
 		},
 	}
 
