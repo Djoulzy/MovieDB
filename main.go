@@ -18,11 +18,23 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/Djoulzy/ImgStock/clog"
+	"github.com/Djoulzy/Tools/clog"
+	"github.com/Djoulzy/Tools/config"
 	curl "github.com/andelf/go-curl"
 	"github.com/ryanbradynd05/go-tmdb"
 	"github.com/valyala/fasthttp"
 )
+
+type Globals struct {
+	LogLevel     int
+	StartLogging bool
+	HTTP_addr    string
+	TMDB_Key     string
+}
+
+type AppConfig struct {
+	Globals
+}
 
 type MovieDB struct {
 	conn        *tmdb.TMDb
@@ -162,9 +174,20 @@ func (DB *MovieDB) action(ctx *fasthttp.RequestCtx) {
 		DB.handleError(ctx, "Not found", http.StatusNotFound)
 		return
 	}
-	movieName := query[1] //strings.Join(query, " ")
+	if len(query) < 2 {
+		DB.handleError(ctx, "Bad Query", http.StatusNotFound)
+		return
+	}
+
+	movieName := query[1]
 	size := query[0]
-	year := query[2]
+
+	var year string
+	if len(query) > 2 {
+		year = query[2]
+	} else {
+		year = ""
+	}
 
 	url, err = DB.checkCache(movieName, size, year)
 	if err != nil {
@@ -182,7 +205,7 @@ func (DB *MovieDB) action(ctx *fasthttp.RequestCtx) {
 	}
 }
 
-func (DB *MovieDB) Start() {
+func (DB *MovieDB) Start(appConf *AppConfig) {
 	conf, err := DB.conn.GetConfiguration()
 	if err != nil {
 		clog.Fatal("MovieDB", "Start", err)
@@ -191,19 +214,29 @@ func (DB *MovieDB) Start() {
 	DB.baseURL = conf.Images.BaseURL
 	DB.posterSizes = conf.Images.PosterSizes
 
-	err = fasthttp.ListenAndServe("10.31.100.200:9999", DB.action)
+	clog.Info("MovieDB", "Start", "HTTP Listening on %s", appConf.HTTP_addr)
+	err = fasthttp.ListenAndServe(appConf.HTTP_addr, DB.action)
 	if err != nil {
 		clog.Fatal("MovieDB", "Start", err)
 	}
 }
 
 func main() {
-	clog.LogLevel = 5
-	clog.StartLogging = true
-
-	DB := MovieDB{
-		conn: tmdb.Init("a0a1bc2a8a0f074c47fdae6efdeb5e04"),
+	appConfig := &AppConfig{
+		Globals{
+			LogLevel:     1,
+			StartLogging: false,
+			HTTP_addr:    "localhost:90",
+		},
 	}
 
-	DB.Start()
+	config.Load("MovieDB.ini", appConfig)
+	clog.LogLevel = appConfig.LogLevel
+	clog.StartLogging = appConfig.StartLogging
+
+	DB := MovieDB{
+		conn: tmdb.Init(appConfig.TMDB_Key),
+	}
+
+	DB.Start(appConfig)
 }
