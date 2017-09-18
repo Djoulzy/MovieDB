@@ -54,7 +54,6 @@ func (DB *MovieDB) handleError(ctx *fasthttp.RequestCtx, message string, status 
 }
 
 func (DB *MovieDB) sendBuffer(ctx *fasthttp.RequestCtx, buffer *bytes.Buffer) {
-	ctx.SetContentType("image/jpeg")
 	ctx.Write(buffer.Bytes())
 }
 
@@ -74,14 +73,13 @@ func (DB *MovieDB) memoryWriter(ptr []byte, userdata interface{}) bool {
 	return true
 }
 
-func (DB *MovieDB) cacheBuffer(buffer *bytes.Buffer, movieName string, size string, year string) bool {
-	path := fmt.Sprintf("%s/%s", cacheDir, size)
+func (DB *MovieDB) cacheBuffer(buffer *bytes.Buffer, cacheID string, categorie string, fileType string) bool {
+	path := fmt.Sprintf("%s/%s", cacheDir, categorie)
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		os.MkdirAll(path, os.ModePerm)
 	}
 
-	id := DB.makeID(movieName, year)
-	filename := fmt.Sprintf("%s/%s.jpg", path, id)
+	filename := fmt.Sprintf("%s/%s.%s", path, cacheID, fileType)
 	file, _ := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0777)
 	defer file.Close()
 
@@ -94,13 +92,12 @@ func (DB *MovieDB) cacheBuffer(buffer *bytes.Buffer, movieName string, size stri
 	return true
 }
 
-func (DB *MovieDB) checkCache(movieName string, size string, year string) (string, error) {
+func (DB *MovieDB) checkCache(cacheID string, categorie string, fileType string) (string, error) {
 	if _, err := os.Stat(cacheDir); os.IsNotExist(err) {
 		os.MkdirAll(cacheDir, os.ModePerm)
 	}
 
-	id := DB.makeID(movieName, year)
-	file := fmt.Sprintf("%s/%s/%s.jpg", cacheDir, size, id)
+	file := fmt.Sprintf("%s/%s/%s.%s", cacheDir, categorie, cacheID, fileType)
 	if _, err := os.Stat(file); os.IsNotExist(err) {
 		return "", errors.New("No Data Found")
 	}
@@ -151,9 +148,10 @@ func (DB *MovieDB) find(movieName string, size string, year string) (string, err
 		clog.Warn("MovieDB", "find", "Searching for '%s' year: %s, No Data Found", movieName, options["year"])
 		return "", errors.New("No Data Found")
 	}
-	movieInfo := results.Results[0]
-	clog.Debug("MovieDB", "find", "Searching for '%s' year: %s, Found: '%v' [TmdbID:%d]", movieName, options["year"], movieInfo.Title, movieInfo.ID)
-	filePath := fmt.Sprintf("%s%s%s", DB.baseURL, size, movieInfo.PosterPath)
+	movie := results.Results[0]
+
+	clog.Debug("MovieDB", "find", "Searching for '%s' year: %s, Found: '%v' [TmdbID:%d]", movieName, options["year"], movie.Title, movie.ID)
+	filePath := fmt.Sprintf("%s%s%s", DB.baseURL, size, movie.PosterPath)
 
 	return filePath, nil
 }
@@ -163,22 +161,43 @@ func (DB *MovieDB) makeID(movieName string, year string) string {
 	return fmt.Sprintf("%x", tmp)
 }
 
-func (DB *MovieDB) action(ctx *fasthttp.RequestCtx) {
+func (DB *MovieDB) getSynopsys(ctx *fasthttp.RequestCtx, query []string) {
+	var url string
+	var err error
+	var options = make(map[string]string)
+
+	movieName := query[1]
+
+	var year string
+	if len(query) > 2 {
+		year = query[2]
+	} else {
+		year = ""
+	}
+
+	id := DB.makeID(string(movieName), year)
+	url, err = DB.checkCache(id, "syn", "html")
+	if err != nil {
+		options["year"] = year
+		results, _ := DB.conn.SearchMovie(movieName, options)
+		movie := results.Results[0]
+
+		options["language"] = "fr-FR"
+		movieInfos, _ := DB.conn.GetMovieInfo(movie.ID, options)
+		tmpBuff := bytes.NewBufferString(movieInfos.Overview)
+		DB.sendBuffer(ctx, tmpBuff)
+		ctx.SetContentType("text/html")
+		DB.cacheBuffer(tmpBuff, id, "syn", "html")
+	} else {
+		ctx.SetContentType("text/html")
+		DB.sendBinary(ctx, url)
+	}
+}
+
+func (DB *MovieDB) getArtwork(ctx *fasthttp.RequestCtx, query []string) {
 	var buffer *bytes.Buffer
 	var url string
 	var err error
-
-	clog.Info("MovieDB", "action", "GET %s", ctx.Path())
-	path := ctx.Path()
-	query := strings.Split(string(path[1:]), "/")
-	if query[0] == "favicon.ico" {
-		DB.handleError(ctx, "Not found", http.StatusNotFound)
-		return
-	}
-	if len(query) < 2 {
-		DB.handleError(ctx, "Bad Query", http.StatusNotFound)
-		return
-	}
 
 	movieName := query[1]
 	size := query[0]
@@ -190,7 +209,8 @@ func (DB *MovieDB) action(ctx *fasthttp.RequestCtx) {
 		year = ""
 	}
 
-	url, err = DB.checkCache(movieName, size, year)
+	id := DB.makeID(movieName, year)
+	url, err = DB.checkCache(id, size, "jpg")
 	if err != nil {
 		url, err = DB.find(movieName, size, year)
 		if err != nil {
@@ -199,10 +219,34 @@ func (DB *MovieDB) action(ctx *fasthttp.RequestCtx) {
 		}
 		buffer = new(bytes.Buffer)
 		DB.fetch(url, buffer)
+		ctx.SetContentType("image/jpeg")
 		DB.sendBuffer(ctx, buffer)
-		DB.cacheBuffer(buffer, movieName, size, year)
+		DB.cacheBuffer(buffer, id, size, "jpg")
 	} else {
+		ctx.SetContentType("image/jpeg")
 		DB.sendBinary(ctx, url)
+	}
+}
+
+func (DB *MovieDB) action(ctx *fasthttp.RequestCtx) {
+
+	clog.Info("MovieDB", "action", "GET %s", ctx.Path())
+	path := ctx.Path()
+	query := strings.Split(string(path[1:]), "/")
+
+	if len(query) < 2 {
+		DB.handleError(ctx, "Bad Query", http.StatusNotFound)
+		return
+	}
+
+	switch query[0] {
+	case "favicon.ico":
+		DB.handleError(ctx, "Not found", http.StatusNotFound)
+		return
+	case "syn":
+		DB.getSynopsys(ctx, query)
+	default:
+		DB.getArtwork(ctx, query)
 	}
 }
 
