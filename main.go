@@ -30,6 +30,7 @@ type Globals struct {
 	StartLogging bool
 	HTTP_addr    string
 	TMDB_Key     string
+	CacheDir     string
 }
 
 type AppConfig struct {
@@ -45,7 +46,7 @@ type MovieDB struct {
 
 var conn = tmdb.Init("a0a1bc2a8a0f074c47fdae6efdeb5e04")
 var conf *tmdb.Configuration
-var cacheDir = "./cache"
+var cacheDir string
 
 func (DB *MovieDB) handleError(ctx *fasthttp.RequestCtx, message string, status int) {
 	ctx.SetStatusCode(status)
@@ -233,6 +234,7 @@ func main() {
 	config.Load("MovieDB.ini", appConfig)
 	clog.LogLevel = appConfig.LogLevel
 	clog.StartLogging = appConfig.StartLogging
+	cacheDir = appConfig.CacheDir
 
 	DB := MovieDB{
 		conn: tmdb.Init(appConfig.TMDB_Key),
