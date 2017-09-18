@@ -175,6 +175,9 @@ func (DB *MovieDB) getSynopsys(ctx *fasthttp.RequestCtx, query []string) {
 		year = ""
 	}
 
+	ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
+	ctx.SetContentType("text/html")
+
 	id := DB.makeID(string(movieName), year)
 	url, err = DB.checkCache(id, "syn", "html")
 	if err != nil {
@@ -186,10 +189,8 @@ func (DB *MovieDB) getSynopsys(ctx *fasthttp.RequestCtx, query []string) {
 		movieInfos, _ := DB.conn.GetMovieInfo(movie.ID, options)
 		tmpBuff := bytes.NewBufferString(movieInfos.Overview)
 		DB.sendBuffer(ctx, tmpBuff)
-		ctx.SetContentType("text/html")
 		DB.cacheBuffer(tmpBuff, id, "syn", "html")
 	} else {
-		ctx.SetContentType("text/html")
 		DB.sendBinary(ctx, url)
 	}
 }
@@ -209,6 +210,9 @@ func (DB *MovieDB) getArtwork(ctx *fasthttp.RequestCtx, query []string) {
 		year = ""
 	}
 
+	ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
+	ctx.SetContentType("image/jpeg")
+
 	id := DB.makeID(movieName, year)
 	url, err = DB.checkCache(id, size, "jpg")
 	if err != nil {
@@ -219,11 +223,9 @@ func (DB *MovieDB) getArtwork(ctx *fasthttp.RequestCtx, query []string) {
 		}
 		buffer = new(bytes.Buffer)
 		DB.fetch(url, buffer)
-		ctx.SetContentType("image/jpeg")
 		DB.sendBuffer(ctx, buffer)
 		DB.cacheBuffer(buffer, id, size, "jpg")
 	} else {
-		ctx.SetContentType("image/jpeg")
 		DB.sendBinary(ctx, url)
 	}
 }
