@@ -140,6 +140,7 @@ func (DB *MovieDB) find(movieName string, size string, year string) (string, err
 	}
 	var options = make(map[string]string)
 	options["year"] = year
+	options["include_adult"] = "true"
 	results, err := DB.conn.SearchMovie(movieName, options)
 	if err != nil {
 		return "", err
@@ -182,6 +183,7 @@ func (DB *MovieDB) getSynopsys(ctx *fasthttp.RequestCtx, query []string) {
 	url, err = DB.checkCache(id, "syn", "html")
 	if err != nil {
 		options["year"] = year
+		options["include_adult"] = "true"
 		results, _ := DB.conn.SearchMovie(movieName, options)
 		movie := results.Results[0]
 
