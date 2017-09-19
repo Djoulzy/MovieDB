@@ -19,7 +19,6 @@ import (
 	"github.com/Djoulzy/Tools/clog"
 	curl "github.com/andelf/go-curl"
 	"github.com/ryanbradynd05/go-tmdb"
-	"github.com/valyala/fasthttp"
 )
 
 type DataSource interface {
@@ -37,18 +36,6 @@ type MDB struct {
 
 var conn = tmdb.Init("a0a1bc2a8a0f074c47fdae6efdeb5e04")
 var conf *tmdb.Configuration
-
-func (DB *MDB) sendBuffer(ctx *fasthttp.RequestCtx, buffer *bytes.Buffer) {
-	ctx.Write(buffer.Bytes())
-}
-
-func (DB *MDB) sendBinary(ctx *fasthttp.RequestCtx, filepath string) {
-	fasthttp.ServeFile(ctx, filepath)
-}
-
-func (DB *MDB) sendLogo(ctx *fasthttp.RequestCtx) {
-	DB.sendBinary(ctx, "./tmdb.png")
-}
 
 func (DB *MDB) memoryWriter(ptr []byte, userdata interface{}) bool {
 	if ptr != nil {
@@ -147,22 +134,10 @@ func (DB *MDB) makeID(movieName string, year string) string {
 	return fmt.Sprintf("%x", tmp)
 }
 
-func (DB *MDB) GetSynopsys(ctx *fasthttp.RequestCtx, query []string) {
+func (DB *MDB) GetSynopsys(movieName string, year string) (string, error) {
 	var url string
 	var err error
 	var options = make(map[string]string)
-
-	movieName := query[1]
-
-	var year string
-	if len(query) > 2 {
-		year = query[2]
-	} else {
-		year = ""
-	}
-
-	ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
-	ctx.SetContentType("text/html")
 
 	id := DB.makeID(string(movieName), year)
 	url, err = DB.checkCache(id, "syn", "html")
@@ -175,44 +150,32 @@ func (DB *MDB) GetSynopsys(ctx *fasthttp.RequestCtx, query []string) {
 		options["language"] = "fr-FR"
 		movieInfos, _ := DB.conn.GetMovieInfo(movie.ID, options)
 		tmpBuff := bytes.NewBufferString(movieInfos.Overview)
-		DB.sendBuffer(ctx, tmpBuff)
-		DB.cacheBuffer(tmpBuff, id, "syn", "html")
+
+		cachefile, _ := DB.cacheBuffer(tmpBuff, id, "syn", "html")
+		return cachefile, nil
 	} else {
-		DB.sendBinary(ctx, url)
+		return url, nil
 	}
 }
 
-func (DB *MDB) GetArtwork(ctx *fasthttp.RequestCtx, query []string) {
+func (DB *MDB) GetArtwork(movieName string, size string, year string) (string, error) {
 	var buffer *bytes.Buffer
 	var url string
 	var err error
-
-	movieName := query[1]
-	size := query[0]
-
-	var year string
-	if len(query) > 2 {
-		year = query[2]
-	} else {
-		year = ""
-	}
-
-	ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
-	ctx.SetContentType("image/jpeg")
 
 	id := DB.makeID(movieName, year)
 	url, err = DB.checkCache(id, size, "jpg")
 	if err != nil {
 		url, err = DB.find(movieName, size, year)
 		if err != nil {
-			DB.sendLogo(ctx)
-			return
+			return "", errors.New("No Artwork Found")
 		}
 		buffer = new(bytes.Buffer)
 		DB.fetch(url, buffer)
-		file, err := DB.cacheBuffer(buffer, id, size, "jpg")
+		cachefile, _ := DB.cacheBuffer(buffer, id, size, "jpg")
+		return cachefile, nil
 	} else {
-		DB.sendBinary(ctx, url)
+		return url, nil
 	}
 }
 
