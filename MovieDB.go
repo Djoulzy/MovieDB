@@ -1,4 +1,4 @@
-package main
+package MovieDB
 
 // type TMDb struct {
 // 	apiKey string
@@ -13,59 +13,44 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/Djoulzy/Tools/clog"
-	"github.com/Djoulzy/Tools/config"
 	curl "github.com/andelf/go-curl"
 	"github.com/ryanbradynd05/go-tmdb"
 	"github.com/valyala/fasthttp"
 )
 
-type Globals struct {
-	LogLevel     int
-	StartLogging bool
-	HTTP_addr    string
-	TMDB_Key     string
-	CacheDir     string
+type DataSource interface {
+	GetTMDBKey() string
+	GetCacheDir() string
 }
 
-type AppConfig struct {
-	Globals
-}
-
-type MovieDB struct {
+type MDB struct {
 	conn        *tmdb.TMDb
 	config      *tmdb.Configuration
 	baseURL     string
 	posterSizes []string
+	cacheDir    string
 }
 
 var conn = tmdb.Init("a0a1bc2a8a0f074c47fdae6efdeb5e04")
 var conf *tmdb.Configuration
-var cacheDir string
 
-func (DB *MovieDB) handleError(ctx *fasthttp.RequestCtx, message string, status int) {
-	ctx.SetStatusCode(status)
-	fmt.Fprintf(ctx, "%s\n", message)
-}
-
-func (DB *MovieDB) sendBuffer(ctx *fasthttp.RequestCtx, buffer *bytes.Buffer) {
+func (DB *MDB) sendBuffer(ctx *fasthttp.RequestCtx, buffer *bytes.Buffer) {
 	ctx.Write(buffer.Bytes())
 }
 
-func (DB *MovieDB) sendBinary(ctx *fasthttp.RequestCtx, filepath string) {
+func (DB *MDB) sendBinary(ctx *fasthttp.RequestCtx, filepath string) {
 	fasthttp.ServeFile(ctx, filepath)
 }
 
-func (DB *MovieDB) sendLogo(ctx *fasthttp.RequestCtx) {
+func (DB *MDB) sendLogo(ctx *fasthttp.RequestCtx) {
 	DB.sendBinary(ctx, "./tmdb.png")
 }
 
-func (DB *MovieDB) memoryWriter(ptr []byte, userdata interface{}) bool {
+func (DB *MDB) memoryWriter(ptr []byte, userdata interface{}) bool {
 	if ptr != nil {
 		buffer := userdata.(*bytes.Buffer)
 		buffer.Write(ptr)
@@ -73,8 +58,8 @@ func (DB *MovieDB) memoryWriter(ptr []byte, userdata interface{}) bool {
 	return true
 }
 
-func (DB *MovieDB) cacheBuffer(buffer *bytes.Buffer, cacheID string, categorie string, fileType string) bool {
-	path := fmt.Sprintf("%s/%s", cacheDir, categorie)
+func (DB *MDB) cacheBuffer(buffer *bytes.Buffer, cacheID string, categorie string, fileType string) (string, error) {
+	path := fmt.Sprintf("%s/%s", DB.cacheDir, categorie)
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		os.MkdirAll(path, os.ModePerm)
 	}
@@ -84,28 +69,28 @@ func (DB *MovieDB) cacheBuffer(buffer *bytes.Buffer, cacheID string, categorie s
 	defer file.Close()
 
 	if _, err := file.Write(buffer.Bytes()); err != nil {
-		return false
+		return "", errors.New("Can' write cache data")
 	}
 	finfo, _ := file.Stat()
 	fsize := finfo.Size()
-	clog.Info("MovieDB", "cacheBuffer", "Storing %s (%d)", filename, fsize)
-	return true
+	clog.Info("MDB", "cacheBuffer", "Storing %s (%d)", filename, fsize)
+	return filename, nil
 }
 
-func (DB *MovieDB) checkCache(cacheID string, categorie string, fileType string) (string, error) {
-	if _, err := os.Stat(cacheDir); os.IsNotExist(err) {
-		os.MkdirAll(cacheDir, os.ModePerm)
+func (DB *MDB) checkCache(cacheID string, categorie string, fileType string) (string, error) {
+	if _, err := os.Stat(DB.cacheDir); os.IsNotExist(err) {
+		os.MkdirAll(DB.cacheDir, os.ModePerm)
 	}
 
-	file := fmt.Sprintf("%s/%s/%s.%s", cacheDir, categorie, cacheID, fileType)
+	file := fmt.Sprintf("%s/%s/%s.%s", DB.cacheDir, categorie, cacheID, fileType)
 	if _, err := os.Stat(file); os.IsNotExist(err) {
 		return "", errors.New("No Data Found")
 	}
-	clog.Info("MovieDB", "checkCache", "Data found in cache: %s", file)
+	clog.Info("MDB", "checkCache", "Data found in cache: %s", file)
 	return file, nil
 }
 
-func (DB *MovieDB) fetch(url string, buffer *bytes.Buffer) bool {
+func (DB *MDB) fetch(url string, buffer *bytes.Buffer) bool {
 	easy := curl.EasyInit()
 	defer easy.Cleanup()
 
@@ -115,9 +100,9 @@ func (DB *MovieDB) fetch(url string, buffer *bytes.Buffer) bool {
 		easy.Setopt(curl.OPT_WRITEFUNCTION, DB.memoryWriter)
 		easy.Setopt(curl.OPT_WRITEDATA, buffer)
 
-		clog.Info("MovieDB", "fetch", "Fetching %s", url)
+		clog.Info("MDB", "fetch", "Fetching %s", url)
 		if err := easy.Perform(); err != nil {
-			clog.Error("MovieDB", "fetch", "ERROR: %v\n", err)
+			clog.Error("MDB", "fetch", "ERROR: %v\n", err)
 			return false
 		}
 
@@ -125,15 +110,15 @@ func (DB *MovieDB) fetch(url string, buffer *bytes.Buffer) bool {
 		if code == 200 {
 			return true
 		}
-		clog.Error("MovieDB", "fetch", "ERROR CODE: %v", code)
+		clog.Error("MDB", "fetch", "ERROR CODE: %v", code)
 		return false
 	}
-	clog.Error("MovieDB", "fetch", "cURL init problems ... Halting")
+	clog.Error("MDB", "fetch", "cURL init problems ... Halting")
 	log.Fatal()
 	return false
 }
 
-func (DB *MovieDB) find(movieName string, size string, year string) (string, error) {
+func (DB *MDB) find(movieName string, size string, year string) (string, error) {
 	if utf8.ValidString(movieName) {
 		// rune, size := utf8.DecodeLastRuneInString(movieName)
 		// clog.Trace("", "", "%s %d", rune, size)
@@ -146,23 +131,23 @@ func (DB *MovieDB) find(movieName string, size string, year string) (string, err
 		return "", err
 	}
 	if len(results.Results) == 0 {
-		clog.Warn("MovieDB", "find", "Searching for '%s' year: %s, No Data Found", movieName, options["year"])
+		clog.Warn("MDB", "find", "Searching for '%s' year: %s, No Data Found", movieName, options["year"])
 		return "", errors.New("No Data Found")
 	}
 	movie := results.Results[0]
 
-	clog.Debug("MovieDB", "find", "Searching for '%s' year: %s, Found: '%v' [TmdbID:%d]", movieName, options["year"], movie.Title, movie.ID)
+	clog.Debug("MDB", "find", "Searching for '%s' year: %s, Found: '%v' [TmdbID:%d]", movieName, options["year"], movie.Title, movie.ID)
 	filePath := fmt.Sprintf("%s%s%s", DB.baseURL, size, movie.PosterPath)
 
 	return filePath, nil
 }
 
-func (DB *MovieDB) makeID(movieName string, year string) string {
+func (DB *MDB) makeID(movieName string, year string) string {
 	tmp := sha1.Sum([]byte(fmt.Sprintf("%s|%s", year, movieName)))
 	return fmt.Sprintf("%x", tmp)
 }
 
-func (DB *MovieDB) getSynopsys(ctx *fasthttp.RequestCtx, query []string) {
+func (DB *MDB) GetSynopsys(ctx *fasthttp.RequestCtx, query []string) {
 	var url string
 	var err error
 	var options = make(map[string]string)
@@ -197,7 +182,7 @@ func (DB *MovieDB) getSynopsys(ctx *fasthttp.RequestCtx, query []string) {
 	}
 }
 
-func (DB *MovieDB) getArtwork(ctx *fasthttp.RequestCtx, query []string) {
+func (DB *MDB) GetArtwork(ctx *fasthttp.RequestCtx, query []string) {
 	var buffer *bytes.Buffer
 	var url string
 	var err error
@@ -225,68 +210,26 @@ func (DB *MovieDB) getArtwork(ctx *fasthttp.RequestCtx, query []string) {
 		}
 		buffer = new(bytes.Buffer)
 		DB.fetch(url, buffer)
-		DB.sendBuffer(ctx, buffer)
-		DB.cacheBuffer(buffer, id, size, "jpg")
+		file, err := DB.cacheBuffer(buffer, id, size, "jpg")
 	} else {
 		DB.sendBinary(ctx, url)
 	}
 }
 
-func (DB *MovieDB) action(ctx *fasthttp.RequestCtx) {
-
-	clog.Info("MovieDB", "action", "GET %s", ctx.Path())
-	path := ctx.Path()
-	query := strings.Split(string(path[1:]), "/")
-
-	if len(query) < 2 {
-		DB.handleError(ctx, "Bad Query", http.StatusNotFound)
-		return
+func Init(appConf DataSource) *MDB {
+	TMDB_Key := appConf.GetTMDBKey()
+	DB := &MDB{
+		conn:     tmdb.Init(TMDB_Key),
+		cacheDir: appConf.GetCacheDir(),
 	}
 
-	switch query[0] {
-	case "favicon.ico":
-		DB.handleError(ctx, "Not found", http.StatusNotFound)
-		return
-	case "syn":
-		DB.getSynopsys(ctx, query)
-	default:
-		DB.getArtwork(ctx, query)
-	}
-}
-
-func (DB *MovieDB) Start(appConf *AppConfig) {
 	conf, err := DB.conn.GetConfiguration()
 	if err != nil {
-		clog.Fatal("MovieDB", "Start", err)
+		clog.Fatal("MDB", "Start", err)
 	}
 	DB.config = conf
 	DB.baseURL = conf.Images.BaseURL
 	DB.posterSizes = conf.Images.PosterSizes
 
-	clog.Info("MovieDB", "Start", "HTTP Listening on %s", appConf.HTTP_addr)
-	err = fasthttp.ListenAndServe(appConf.HTTP_addr, DB.action)
-	if err != nil {
-		clog.Fatal("MovieDB", "Start", err)
-	}
-}
-
-func main() {
-	appConfig := &AppConfig{
-		Globals{
-			LogLevel:     5,
-			StartLogging: true,
-			HTTP_addr:    "localhost:9999",
-		},
-	}
-
-	config.Load("MovieDB.ini", appConfig)
-	clog.LogLevel = appConfig.LogLevel
-	clog.StartLogging = appConfig.StartLogging
-	cacheDir = appConfig.CacheDir
-
-	DB := MovieDB{
-		conn: tmdb.Init(appConfig.TMDB_Key),
-	}
-
-	DB.Start(appConfig)
+	return DB
 }
