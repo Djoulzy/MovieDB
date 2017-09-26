@@ -10,10 +10,13 @@ package MovieDB
 import (
 	"bytes"
 	"crypto/sha1"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
+	"strconv"
 	"unicode/utf8"
 
 	"github.com/Djoulzy/Tools/clog"
@@ -113,6 +116,7 @@ func (DB *MDB) find(movieName string, size string, year string) (string, error) 
 	var options = make(map[string]string)
 	options["year"] = year
 	options["include_adult"] = "true"
+	options["language"] = "fr-FR"
 	results, err := DB.conn.SearchMovie(movieName, options)
 	if err != nil {
 		return "", err
@@ -179,7 +183,7 @@ func (DB *MDB) GetArtwork(movieName string, size string, year string) (string, e
 	}
 }
 
-func (DB *MDB) GetMovieID(movieName string, year string) (int, error) {
+func (DB *MDB) GetMovieID(movieName string, year string) (string, error) {
 	if utf8.ValidString(movieName) {
 		// rune, size := utf8.DecodeLastRuneInString(movieName)
 		// clog.Trace("", "", "%s %d", rune, size)
@@ -190,30 +194,48 @@ func (DB *MDB) GetMovieID(movieName string, year string) (int, error) {
 	options["include_adult"] = "true"
 	results, err := DB.conn.SearchMovie(movieName, options)
 	if err != nil {
-		return 0, err
+		return "", err
 	}
 	switch len(results.Results) {
 	case 0:
 		clog.Warn("MDB", "find", "Searching for '%s' year: %s, No Data Found", movieName, options["year"])
-		return 0, errors.New("No Data Found")
+		return "", errors.New("No Data Found")
 	case 1:
 		clog.Info("MDB", "find", "Searching for '%s' year: %s, Found: [ID: %d] %s", movieName, options["year"], results.Results[0].ID, results.Results[0].Title)
-		return results.Results[0].ID, nil
+		return strconv.Itoa(results.Results[0].ID), nil
 	default:
 		clog.Warn("MDB", "find", "Searching for '%s' year: %s, Too many results found", movieName, options["year"])
-		return 0, errors.New("Too many results found")
+		return "", errors.New("Too many results found")
 	}
 }
 
-func (DB *MDB) GetMovieInfos(movieID int) (string, error) {
+func (DB *MDB) GetMovieInfos(movieID string) (*tmdb.Movie, error) {
 	var options = make(map[string]string)
 
-	options["language"] = "fr-FR"
-	options["include_adult"] = "true"
-	movieInfos, err := DB.conn.GetMovieInfo(movieID, options)
-	// tmpBuff := bytes.NewBufferString(movieInfos.Overview)
-
-	return movieInfos.Overview, err
+	file, err := DB.checkCache(movieID, "meta", "json")
+	if err != nil {
+		id, _ := strconv.Atoi(movieID)
+		options["language"] = "fr-FR"
+		options["include_adult"] = "true"
+		movieInfos, err := DB.conn.GetMovieInfo(id, options)
+		infoJson, err := json.Marshal(movieInfos)
+		tmpBuff := bytes.NewBuffer(infoJson)
+		DB.cacheBuffer(tmpBuff, movieID, "meta", "json")
+		return movieInfos, err
+	} else {
+		var movieInfos = &tmdb.Movie{}
+		raw, err := ioutil.ReadFile(file)
+		if err != nil {
+			clog.Error("MDB", "GetMovieInfos", "Cannot load %s (%s)", file, err)
+			return nil, err
+		}
+		err = json.Unmarshal(raw, movieInfos)
+		if err != nil {
+			clog.Error("MDB", "GetMovieInfos", "Inconsistent data in cache file %s (%s)", file, err)
+			return nil, err
+		}
+		return movieInfos, err
+	}
 }
 
 func Init(appConf DataSource) *MDB {
