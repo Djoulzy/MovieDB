@@ -179,6 +179,43 @@ func (DB *MDB) GetArtwork(movieName string, size string, year string) (string, e
 	}
 }
 
+func (DB *MDB) GetMovieID(movieName string, year string) (int, error) {
+	if utf8.ValidString(movieName) {
+		// rune, size := utf8.DecodeLastRuneInString(movieName)
+		// clog.Trace("", "", "%s %d", rune, size)
+	}
+	var options = make(map[string]string)
+	options["year"] = year
+	options["language"] = "fr-FR"
+	options["include_adult"] = "true"
+	results, err := DB.conn.SearchMovie(movieName, options)
+	if err != nil {
+		return 0, err
+	}
+	switch len(results.Results) {
+	case 0:
+		clog.Warn("MDB", "find", "Searching for '%s' year: %s, No Data Found", movieName, options["year"])
+		return 0, errors.New("No Data Found")
+	case 1:
+		clog.Info("MDB", "find", "Searching for '%s' year: %s, Found: [ID: %d] %s", movieName, options["year"], results.Results[0].ID, results.Results[0].Title)
+		return results.Results[0].ID, nil
+	default:
+		clog.Warn("MDB", "find", "Searching for '%s' year: %s, Too many results found", movieName, options["year"])
+		return 0, errors.New("Too many results found")
+	}
+}
+
+func (DB *MDB) GetMovieInfos(movieID int) (string, error) {
+	var options = make(map[string]string)
+
+	options["language"] = "fr-FR"
+	options["include_adult"] = "true"
+	movieInfos, err := DB.conn.GetMovieInfo(movieID, options)
+	// tmpBuff := bytes.NewBufferString(movieInfos.Overview)
+
+	return movieInfos.Overview, err
+}
+
 func Init(appConf DataSource) *MDB {
 	TMDB_Key := appConf.GetTMDBKey()
 	DB := &MDB{
