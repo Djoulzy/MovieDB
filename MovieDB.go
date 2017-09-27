@@ -230,7 +230,7 @@ func (DB *MDB) GetMovieID(movieName string, year string) (string, error) {
 		return strconv.Itoa(results.Results[0].ID), nil
 	default:
 		clog.Warn("MDB", "GetMovieID", "Searching for '%s' year: %s, Too many results found", movieName, options["year"])
-		return "", errors.New("Too many results found")
+		return strconv.Itoa(results.Results[0].ID), nil
 	}
 }
 
