@@ -248,17 +248,11 @@ func (DB *MDB) GetMovieInfos(movieID string) ([]byte, error) {
 		DB.cacheBuffer(tmpBuff, movieID, "meta", "json")
 		return infoJson, err
 	} else {
-		// var movieInfos = &tmdb.Movie{}
 		raw, err := ioutil.ReadFile(file)
 		if err != nil {
 			clog.Error("MDB", "GetMovieInfos", "Cannot load %s (%s)", file, err)
 			return nil, err
 		}
-		// err = json.Unmarshal(raw, movieInfos)
-		// if err != nil {
-		// 	clog.Error("MDB", "GetMovieInfos", "Inconsistent data in cache file %s (%s)", file, err)
-		// 	return nil, err
-		// }
 		return raw, err
 	}
 }
