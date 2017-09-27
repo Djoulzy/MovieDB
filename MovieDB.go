@@ -108,75 +108,100 @@ func (DB *MDB) fetch(url string, buffer *bytes.Buffer) bool {
 	return false
 }
 
-func (DB *MDB) find(movieName string, size string, year string) (string, error) {
-	if utf8.ValidString(movieName) {
-		// rune, size := utf8.DecodeLastRuneInString(movieName)
-		// clog.Trace("", "", "%s %d", rune, size)
-	}
-	var options = make(map[string]string)
-	options["year"] = year
-	options["include_adult"] = "true"
-	options["language"] = "fr-FR"
-	results, err := DB.conn.SearchMovie(movieName, options)
-	if err != nil {
-		return "", err
-	}
-	if len(results.Results) == 0 {
-		clog.Warn("MDB", "find", "Searching for '%s' year: %s, No Data Found", movieName, options["year"])
-		return "", errors.New("No Data Found")
-	}
-	movie := results.Results[0]
-
-	clog.Debug("MDB", "find", "Searching for '%s' year: %s, Found: '%v' [TmdbID:%d]", movieName, options["year"], movie.Title, movie.ID)
-	filePath := fmt.Sprintf("%s%s%s", DB.baseURL, size, movie.PosterPath)
-
-	return filePath, nil
-}
+// func (DB *MDB) find(movieName string, size string, year string) (string, error) {
+// 	if utf8.ValidString(movieName) {
+// 		// rune, size := utf8.DecodeLastRuneInString(movieName)
+// 		// clog.Trace("", "", "%s %d", rune, size)
+// 	}
+// 	var options = make(map[string]string)
+// 	options["year"] = year
+// 	options["include_adult"] = "true"
+// 	options["language"] = "fr-FR"
+// 	results, err := DB.conn.SearchMovie(movieName, options)
+// 	if err != nil {
+// 		return "", err
+// 	}
+// 	if len(results.Results) == 0 {
+// 		clog.Warn("MDB", "find", "Searching for '%s' year: %s, No Data Found", movieName, options["year"])
+// 		return "", errors.New("No Data Found")
+// 	}
+// 	movie := results.Results[0]
+//
+// 	clog.Debug("MDB", "find", "Searching for '%s' year: %s, Found: '%v' [TmdbID:%d]", movieName, options["year"], movie.Title, movie.ID)
+// 	filePath := fmt.Sprintf("%s%s%s", DB.baseURL, size, movie.PosterPath)
+//
+// 	return filePath, nil
+// }
 
 func (DB *MDB) makeID(movieName string, year string) string {
 	tmp := sha1.Sum([]byte(fmt.Sprintf("%s|%s", year, movieName)))
 	return fmt.Sprintf("%x", tmp)
 }
 
-func (DB *MDB) GetSynopsys(movieName string, year string) (string, error) {
-	var url string
-	var err error
-	var options = make(map[string]string)
+// func (DB *MDB) GetSynopsys(movieName string, year string) (string, error) {
+// 	var url string
+// 	var err error
+// 	var options = make(map[string]string)
+//
+// 	id := DB.makeID(string(movieName), year)
+// 	url, err = DB.checkCache(id, "syn", "html")
+// 	if err != nil {
+// 		options["year"] = year
+// 		options["include_adult"] = "true"
+// 		results, _ := DB.conn.SearchMovie(movieName, options)
+// 		movie := results.Results[0]
+//
+// 		options["language"] = "fr-FR"
+// 		movieInfos, _ := DB.conn.GetMovieInfo(movie.ID, options)
+// 		tmpBuff := bytes.NewBufferString(movieInfos.Overview)
+//
+// 		cachefile, _ := DB.cacheBuffer(tmpBuff, id, "syn", "html")
+// 		return cachefile, nil
+// 	} else {
+// 		return url, nil
+// 	}
+// }
 
-	id := DB.makeID(string(movieName), year)
-	url, err = DB.checkCache(id, "syn", "html")
-	if err != nil {
-		options["year"] = year
-		options["include_adult"] = "true"
-		results, _ := DB.conn.SearchMovie(movieName, options)
-		movie := results.Results[0]
+// func (DB *MDB) FindArtwork(movieName string, size string, year string) (string, error) {
+// 	var buffer *bytes.Buffer
+// 	var url string
+// 	var err error
+//
+// 	id := DB.makeID(movieName, year)
+// 	url, err = DB.checkCache(id, size, "jpg")
+// 	if err != nil {
+// 		url, err = DB.find(movieName, size, year)
+// 		if err != nil {
+// 			return "", errors.New("No Artwork Found")
+// 		}
+// 		buffer = new(bytes.Buffer)
+// 		DB.fetch(url, buffer)
+// 		cachefile, _ := DB.cacheBuffer(buffer, id, size, "jpg")
+// 		return cachefile, nil
+// 	} else {
+// 		return url, nil
+// 	}
+// }
 
-		options["language"] = "fr-FR"
-		movieInfos, _ := DB.conn.GetMovieInfo(movie.ID, options)
-		tmpBuff := bytes.NewBufferString(movieInfos.Overview)
-
-		cachefile, _ := DB.cacheBuffer(tmpBuff, id, "syn", "html")
-		return cachefile, nil
-	} else {
-		return url, nil
-	}
-}
-
-func (DB *MDB) GetArtwork(movieName string, size string, year string) (string, error) {
+func (DB *MDB) GetArtwork(movieID string, size string) (string, error) {
 	var buffer *bytes.Buffer
 	var url string
 	var err error
 
-	id := DB.makeID(movieName, year)
-	url, err = DB.checkCache(id, size, "jpg")
+	url, err = DB.checkCache(movieID, size, "jpg")
 	if err != nil {
-		url, err = DB.find(movieName, size, year)
+		raw, err := DB.GetMovieInfos(movieID)
+		var dbMovieInfos = &tmdb.Movie{}
+		err = json.Unmarshal(raw, dbMovieInfos)
 		if err != nil {
 			return "", errors.New("No Artwork Found")
 		}
+
+		filePath := fmt.Sprintf("%s%s%s", DB.baseURL, size, dbMovieInfos.PosterPath)
+
 		buffer = new(bytes.Buffer)
-		DB.fetch(url, buffer)
-		cachefile, _ := DB.cacheBuffer(buffer, id, size, "jpg")
+		DB.fetch(filePath, buffer)
+		cachefile, _ := DB.cacheBuffer(buffer, movieID, size, "jpg")
 		return cachefile, nil
 	} else {
 		return url, nil
@@ -198,18 +223,18 @@ func (DB *MDB) GetMovieID(movieName string, year string) (string, error) {
 	}
 	switch len(results.Results) {
 	case 0:
-		clog.Warn("MDB", "find", "Searching for '%s' year: %s, No Data Found", movieName, options["year"])
+		clog.Warn("MDB", "GetMovieID", "Searching for '%s' year: %s, No Data Found", movieName, options["year"])
 		return "", errors.New("No Data Found")
 	case 1:
-		clog.Info("MDB", "find", "Searching for '%s' year: %s, Found: [ID: %d] %s", movieName, options["year"], results.Results[0].ID, results.Results[0].Title)
+		clog.Info("MDB", "GetMovieID", "Searching for '%s' year: %s, Found: [ID: %d] %s", movieName, options["year"], results.Results[0].ID, results.Results[0].Title)
 		return strconv.Itoa(results.Results[0].ID), nil
 	default:
-		clog.Warn("MDB", "find", "Searching for '%s' year: %s, Too many results found", movieName, options["year"])
+		clog.Warn("MDB", "GetMovieID", "Searching for '%s' year: %s, Too many results found", movieName, options["year"])
 		return "", errors.New("Too many results found")
 	}
 }
 
-func (DB *MDB) GetMovieInfos(movieID string) (*tmdb.Movie, error) {
+func (DB *MDB) GetMovieInfos(movieID string) ([]byte, error) {
 	var options = make(map[string]string)
 
 	file, err := DB.checkCache(movieID, "meta", "json")
@@ -221,20 +246,20 @@ func (DB *MDB) GetMovieInfos(movieID string) (*tmdb.Movie, error) {
 		infoJson, err := json.Marshal(movieInfos)
 		tmpBuff := bytes.NewBuffer(infoJson)
 		DB.cacheBuffer(tmpBuff, movieID, "meta", "json")
-		return movieInfos, err
+		return infoJson, err
 	} else {
-		var movieInfos = &tmdb.Movie{}
+		// var movieInfos = &tmdb.Movie{}
 		raw, err := ioutil.ReadFile(file)
 		if err != nil {
 			clog.Error("MDB", "GetMovieInfos", "Cannot load %s (%s)", file, err)
 			return nil, err
 		}
-		err = json.Unmarshal(raw, movieInfos)
-		if err != nil {
-			clog.Error("MDB", "GetMovieInfos", "Inconsistent data in cache file %s (%s)", file, err)
-			return nil, err
-		}
-		return movieInfos, err
+		// err = json.Unmarshal(raw, movieInfos)
+		// if err != nil {
+		// 	clog.Error("MDB", "GetMovieInfos", "Inconsistent data in cache file %s (%s)", file, err)
+		// 	return nil, err
+		// }
+		return raw, err
 	}
 }
 
